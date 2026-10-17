@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TradeSignal Scanner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:       #070b14;
+    --panel:    #0d1526;
+    --border:   #1c2d4a;
+    --up:       #00e676;
+    --down:     #ff1744;
+    --up-dim:   rgba(0,230,118,.12);
+    --down-dim: rgba(255,23,68,.12);
+    --text:     #8faac8;
+    --bright:   #c8daf0;
+    --accent:   #2979ff;
+    --mono:     'JetBrains Mono', monospace;
+    --sans:     'Inter', sans-serif;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    overflow: hidden;
+  }
+
+  /* ── HEADER BAR ── */
+  #header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 44px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 20px;
+    z-index: 100;
+  }
+  #header .logo-text {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+  }
+  #header .sep { width: 1px; height: 20px; background: var(--border); }
+  #clock {
+    font-size: 13px;
+    color: var(--bright);
+    font-weight: 300;
+    min-width: 90px;
+  }
+  #next-tick {
+    font-size: 10px;
+    color: var(--text);
+    opacity: .65;
+  }
+  .header-tags { margin-left: auto; display: flex; gap: 10px; }
+  .tag {
+    font-size: 9px;
+    padding: 2px 8px;
+    border-radius: 2px;
+    letter-spacing: 1px;
+    font-weight: 600;
+  }
+  .tag-live { background: rgba(0,230,118,.15); color: var(--up); border: 1px solid rgba(0,230,118,.3); }
+  .tag-scan { background: rgba(41,121,255,.15); color: var(--accent); border: 1px solid rgba(41,121,255,.3); }
+
+  /* ── CANDLESTICK BACKGROUND ── */
+  #bg-canvas {
+    position: fixed;
+    top: 44px; left: 0; right: 0; bottom: 0;
+    z-index: 0;
+    opacity: .35;
+  }
+
+  /* ── SCAN LINES OVERLAY ── */
+  #scanlines {
+    position: fixed;
+    top: 44px; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,.08) 2px,
+      rgba(0,0,0,.08) 4px
+    );
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  /* ── TICKER TAPE ── */
+  #ticker-wrap {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    height: 30px;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    overflow: hidden;
+    z-index: 100;
+  }
+  #ticker {
+    display: flex;
+    align-items: center;
+    height: 100%;
+    white-space: nowrap;
+    animation: tickerScroll 32s linear infinite;
+  }
+  @keyframes tickerScroll {
+    from { transform: translateX(100vw); }
+    to   { transform: translateX(-100%); }
+  }
+  .tick-item {
+    font-size: 11px;
+    margin-right: 48px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .tick-sym { color: var(--bright); font-weight: 600; }
+  .tick-val { color: var(--text); }
+  .tick-chg.up   { color: var(--up); }
+  .tick-chg.down { color: var(--down); }
+
+  /* ── MAIN LAYOUT ── */
+  #main {
+    position: fixed;
+    top: 44px; left: 0; right: 0; bottom: 30px;
+    z-index: 2;
+    display: grid;
+    grid-template-columns: 200px 1fr 200px;
+    grid-template-rows: 1fr;
+    gap: 0;
+    padding: 12px;
+    gap: 10px;
+  }
+
+  /* ── SIDE PANELS ── */
+  .side-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .panel-box {
+    background: rgba(13,21,38,.85);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 10px;
+    flex: 1;
+  }
+  .panel-box h4 {
+    font-size: 9px;
+    color: var(--accent);
+    letter-spacing: 2px;
+    margin-bottom: 8px;
+    font-weight: 600;
+    font-family: var(--sans);
+  }
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    padding: 3px 0;
+    border-bottom: 1px solid rgba(28,45,74,.5);
+  }
+  .stat-row:last-child { border-bottom: none; }
+  .stat-row .sym { color: var(--bright); }
+  .stat-row .val.up   { color: var(--up); }
+  .stat-row .val.down { color: var(--down); }
+
+  /* ── CENTER SIGNAL AREA ── */
+  #center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    position: relative;
+  }
+
+  /* ── SIGNAL BUTTON ── */
+  #signal-btn {
+    position: relative;
+    width: 160px;
+    height: 160px;
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    background: var(--panel);
+    border: 2px solid var(--border);
+    transition: transform .15s ease, box-shadow .3s ease;
+    outline: none;
+    z-index: 10;
+  }
+  #signal-btn:hover { transform: scale(1.04); }
+  #signal-btn:active { transform: scale(.97); }
+
+  /* pulse ring */
+  #signal-btn::before {
+    content: '';
+    position: absolute;
+    inset: -12px;
+    border-radius: 50%;
+    border: 1px solid transparent;
+    transition: border-color .3s, box-shadow .3s;
+  }
+  #signal-btn.up-state::before {
+    border-color: rgba(0,230,118,.4);
+    box-shadow: 0 0 30px rgba(0,230,118,.2), inset 0 0 30px rgba(0,230,118,.05);
+    animation: pulseUp 1.8s ease-in-out infinite;
+  }
+  #signal-btn.down-state::before {
+    border-color: rgba(255,23,68,.4);
+    box-shadow: 0 0 30px rgba(255,23,68,.2), inset 0 0 30px rgba(255,23,68,.05);
+    animation: pulseDn 1.8s ease-in-out infinite;
+  }
+  @keyframes pulseUp {
+    0%,100% { box-shadow: 0 0 20px rgba(0,230,118,.15); }
+    50%      { box-shadow: 0 0 50px rgba(0,230,118,.4); }
+  }
+  @keyframes pulseDn {
+    0%,100% { box-shadow: 0 0 20px rgba(255,23,68,.15); }
+    50%      { box-shadow: 0 0 50px rgba(255,23,68,.4); }
+  }
+
+  /* inner circle */
+  #btn-inner {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    background: radial-gradient(circle at 40% 35%, #13203a, #070b14);
+    transition: background .4s ease;
+  }
+  #signal-btn.up-state #btn-inner {
+    background: radial-gradient(circle at 40% 35%, rgba(0,230,118,.15) 0%, #0a1a12 60%, #070b14 100%);
+  }
+  #signal-btn.down-state #btn-inner {
+    background: radial-gradient(circle at 40% 35%, rgba(255,23,68,.15) 0%, #1a0a10 60%, #070b14 100%);
+  }
+
+  /* arrow icon */
+  #btn-arrow {
+    font-size: 42px;
+    line-height: 1;
+    transition: color .4s ease, transform .4s ease;
+    color: var(--text);
+  }
+  #signal-btn.up-state #btn-arrow {
+    color: var(--up);
+    transform: translateY(-3px);
+    text-shadow: 0 0 20px rgba(0,230,118,.6);
+  }
+  #signal-btn.down-state #btn-arrow {
+    color: var(--down);
+    transform: translateY(3px) rotate(180deg);
+    text-shadow: 0 0 20px rgba(255,23,68,.6);
+  }
+
+  #btn-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 3px;
+    font-family: var(--sans);
+    color: var(--text);
+    transition: color .4s;
+  }
+  #signal-btn.up-state #btn-label   { color: var(--up); }
+  #signal-btn.down-state #btn-label { color: var(--down); }
+
+  /* ── SIGNAL DISPLAY ── */
+  #signal-display {
+    text-align: center;
+    min-height: 64px;
+    transition: opacity .3s;
+  }
+  #signal-result {
+    font-size: 38px;
+    font-weight: 700;
+    font-family: var(--sans);
+    letter-spacing: 4px;
+    line-height: 1.1;
+    transition: color .4s, text-shadow .4s;
+    color: var(--text);
+  }
+  #signal-result.up   { color: var(--up);   text-shadow: 0 0 30px rgba(0,230,118,.5); }
+  #signal-result.down { color: var(--down); text-shadow: 0 0 30px rgba(255,23,68,.5); }
+
+  #signal-sub {
+    font-size: 10px;
+    margin-top: 4px;
+    color: var(--text);
+    letter-spacing: 2px;
+    font-family: var(--sans);
+  }
+
+  /* countdown bar */
+  #countdown-wrap {
+    width: 200px;
+    text-align: center;
+  }
+  #countdown-bar-bg {
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 5px;
+  }
+  #countdown-bar {
+    height: 100%;
+    width: 100%;
+    background: var(--accent);
+    transform-origin: left;
+    transition: width linear;
+  }
+  #countdown-text {
+    font-size: 10px;
+    color: var(--text);
+    opacity: .7;
+  }
+
+  /* ── MINI CHART ── */
+  #mini-chart-wrap {
+    width: 320px;
+    height: 70px;
+    position: relative;
+  }
+  #mini-chart {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* ── ROLLING LOG ── */
+  #log-box {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 340px;
+    max-height: 110px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .log-entry {
+    font-size: 10px;
+    display: flex;
+    gap: 10px;
+    opacity: .7;
+    animation: fadeIn .3s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: .7; } }
+  .log-time { color: var(--text); flex-shrink: 0; }
+  .log-sig.up   { color: var(--up); }
+  .log-sig.down { color: var(--down); }
+  .log-conf { color: var(--text); }
+
+  /* ── ROLLING NUMBERS (bg ambiance) ── */
+  .float-num {
+    position: fixed;
+    font-size: 9px;
+    color: var(--border);
+    pointer-events: none;
+    animation: floatUp 6s linear infinite;
+    z-index: 0;
+    font-family: var(--mono);
+  }
+  @keyframes floatUp {
+    from { transform: translateY(0); opacity: .5; }
+    to   { transform: translateY(-80px); opacity: 0; }
+  }
+
+  /* ── INITIAL STATE (before first click) ── */
+  #prompt-text {
+    font-size: 11px;
+    color: var(--text);
+    letter-spacing: 2px;
+    font-family: var(--sans);
+    opacity: .5;
+    text-align: center;
+    animation: blink 2s ease-in-out infinite;
+  }
+  @keyframes blink { 0%,100% { opacity: .5; } 50% { opacity: .2; } }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div id="header">
+  <span class="logo-text">TradeSignal</span>
+  <div class="sep"></div>
+  <span id="clock">--:--:-- --</span>
+  <span id="next-tick"></span>
+  <div class="header-tags">
+    <span class="tag tag-live">● LIVE</span>
+    <span class="tag tag-scan">SCANNING</span>
+  </div>
+</div>
+
+<!-- BACKGROUND CANVAS -->
+<canvas id="bg-canvas"></canvas>
+<div id="scanlines"></div>
+
+<!-- MAIN -->
+<div id="main">
+
+  <!-- LEFT PANEL -->
+  <div class="side-panel">
+    <div class="panel-box">
+      <h4>TOP MOVERS</h4>
+      <div id="movers-list"></div>
+    </div>
+    <div class="panel-box">
+      <h4>VOLUME</h4>
+      <div id="volume-list"></div>
+    </div>
+  </div>
+
+  <!-- CENTER -->
+  <div id="center">
+    <div id="signal-display">
+      <div id="signal-result">---</div>
+      <div id="signal-sub">AWAITING SIGNAL</div>
+    </div>
+
+    <button id="signal-btn" title="Click for Signal">
+      <div id="btn-inner">
+        <div id="btn-arrow">▲</div>
+        <div id="btn-label">SIGNAL</div>
+      </div>
+    </button>
+
+    <div id="countdown-wrap" style="display:none">
+      <div id="countdown-bar-bg"><div id="countdown-bar"></div></div>
+      <div id="countdown-text">Next signal in --:--</div>
+    </div>
+
+    <div id="mini-chart-wrap">
+      <canvas id="mini-chart"></canvas>
+    </div>
+
+    <div id="log-box"></div>
+    <div id="prompt-text">TAP THE BUTTON FOR SIGNAL</div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="side-panel">
+    <div class="panel-box">
+      <h4>MARKET OVERVIEW</h4>
+      <div id="market-list"></div>
+    </div>
+    <div class="panel-box">
+      <h4>SIGNAL HISTORY</h4>
+      <div id="history-list"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- TICKER TAPE -->
+<div id="ticker-wrap">
+  <div id="ticker"></div>
+</div>
+
+<script src="scanner.js"></script>
+</body>
+</html>
